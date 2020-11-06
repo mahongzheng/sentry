@@ -377,7 +377,7 @@ class JiraIntegration(IntegrationInstallation, IssueSyncMixin):
         """
         return reverse("sentry-extensions-jira-search", args=[org_slug, self.model.id])
 
-    def build_dynamic_field(self, group, field_meta):
+    def build_dynamic_field(self, field_meta, organization_slug):
         """
         Builds a field based on Jira's meta field information
         """
@@ -397,7 +397,7 @@ class JiraIntegration(IntegrationInstallation, IssueSyncMixin):
             schema.get("items") == "user" or schema["type"] == "user"
         ):
             fieldtype = "select"
-            fkwargs["url"] = self.search_url(group.organization.slug)
+            fkwargs["url"] = self.search_url(organization_slug)
             fkwargs["choices"] = []
         elif schema["type"] in ["timetracking"]:
             # TODO: Implement timetracking (currently unsupported altogether)
@@ -494,12 +494,18 @@ class JiraIntegration(IntegrationInstallation, IssueSyncMixin):
             )
         return meta
 
+    def get_create_issue_config_no_params(self):
+        return self.get_create_issue_config(None, None, params={})
+
     def get_create_issue_config(self, group, user, **kwargs):
         kwargs["link_referrer"] = "jira_integration"
-        fields = super(JiraIntegration, self).get_create_issue_config(group, user, **kwargs)
         params = kwargs.get("params", {})
+        fields = []
+        defaults = {}
+        if group:
+            fields = super(JiraIntegration, self).get_create_issue_config(group, user, **kwargs)
+            defaults = self.get_defaults(group.project, user)
 
-        defaults = self.get_defaults(group.project, user)
         project_id = params.get("project", defaults.get("project"))
         client = self.get_client()
         try:
@@ -580,12 +586,19 @@ class JiraIntegration(IntegrationInstallation, IssueSyncMixin):
         dynamic_fields = list(issue_type_meta["fields"].keys())
         dynamic_fields.sort(key=lambda f: anti_gravity.get(f) or 0)
 
+        # Only get the organization in the DB if there are dynamic_fields.
+        slug = None
         # build up some dynamic fields based on required shit.
         for field in dynamic_fields:
             if field in standard_fields or field in [x.strip() for x in ignored_fields]:
                 # don't overwrite the fixed fields for the form.
                 continue
-            mb_field = self.build_dynamic_field(group, issue_type_meta["fields"][field])
+
+            # TODO Organization can be null?
+            if not slug:
+                slug = Organization.objects.get(id=self.organization_id).name
+
+            mb_field = self.build_dynamic_field(issue_type_meta["fields"][field], slug)
             if mb_field:
                 mb_field["name"] = field
                 fields.append(mb_field)
