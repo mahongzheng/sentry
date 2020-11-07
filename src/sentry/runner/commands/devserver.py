@@ -216,6 +216,11 @@ def devserver(
             daemons += [_get_daemon("post-process-forwarder")]
 
         if settings.SENTRY_DEV_PROCESS_SUBSCRIPTIONS:
+            if not settings.SENTRY_EVENTSTREAM == "sentry.eventstream.kafka.KafkaEventStream":
+                raise click.ClickException(
+                    "`SENTRY_DEV_PROCESS_SUBSCRIPTIONS` can only be used when "
+                    "`SENTRY_EVENTSTREAM=sentry.eventstream.kafka.KafkaEventStream`."
+                )
             for name, topic in settings.KAFKA_SUBSCRIPTION_RESULT_TOPICS.items():
                 daemons += [_get_daemon("subscription-consumer", "--topic", topic, suffix=name)]
 
